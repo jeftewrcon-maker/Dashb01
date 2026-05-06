@@ -36,8 +36,19 @@ def generate_html(data: dict) -> str:
   --accent:#00d4ff; --accent2:#7c3aed; --accent3:#f59e0b;
   --danger:#ef4444; --success:#10b981; --text:#e2e8f0; --muted:#64748b;
 }}
+[data-theme="light"] {{
+  --bg:#f0f4f8; --surface:#ffffff; --surface2:#e8edf3; --border:#cbd5e1;
+  --accent:#0284c7; --accent2:#7c3aed; --accent3:#d97706;
+  --danger:#ef4444; --success:#059669; --text:#0f172a; --muted:#64748b;
+}}
 *{{margin:0;padding:0;box-sizing:border-box;}}
-body{{background:var(--bg);color:var(--text);font-family:Verdana,Geneva,Tahoma,sans-serif;min-height:100vh;padding:20px;}}
+body{{background:var(--bg);color:var(--text);font-family:Verdana,Geneva,Tahoma,sans-serif;min-height:100vh;padding:20px;transition:background .25s,color .25s;}}
+.theme-toggle{{display:flex;align-items:center;gap:8px;padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:12px;font-weight:600;color:var(--text);font-family:Verdana,Geneva,Tahoma,sans-serif;transition:all .2s;}}
+.theme-toggle:hover{{border-color:var(--accent);color:var(--accent);}}
+.theme-toggle .toggle-track{{width:34px;height:18px;border-radius:9px;background:var(--border);position:relative;transition:background .25s;flex-shrink:0;}}
+.theme-toggle .toggle-thumb{{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:transform .25s,background .25s;}}
+[data-theme="light"] .theme-toggle .toggle-track{{background:var(--accent);}}
+[data-theme="light"] .theme-toggle .toggle-thumb{{transform:translateX(16px);background:#fff;}}
 .header{{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border);}}
 .header h1{{font-size:20px;font-weight:700;letter-spacing:-.5px;}}
 .header p{{font-size:12px;color:var(--muted);margin-top:2px;}}
@@ -74,7 +85,7 @@ body{{background:var(--bg);color:var(--text);font-family:Verdana,Geneva,Tahoma,s
 .obra-list::-webkit-scrollbar{{width:4px;}}
 .obra-list::-webkit-scrollbar-thumb{{background:var(--border);border-radius:2px;}}
 .obra-item{{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:10px;}}
-.obra-item:hover,.obra-item.active{{border-color:var(--accent);background:rgba(0,212,255,.04);}}
+.obra-item:hover,.obra-item.active{{border-color:var(--accent);background:var(--surface2);}}
 .obra-dot{{width:10px;height:10px;border-radius:50%;flex-shrink:0;}}
 .obra-info{{flex:1;min-width:0;}}
 .obra-name{{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
@@ -89,7 +100,7 @@ body{{background:var(--bg);color:var(--text);font-family:Verdana,Geneva,Tahoma,s
 .overlap-table th{{text-align:left;padding:8px 12px;color:var(--muted);border-bottom:1px solid var(--border);font-size:10px;letter-spacing:.5px;text-transform:uppercase;font-weight:600;}}
 .overlap-table td{{padding:8px 12px;border-bottom:1px solid rgba(30,37,48,.5);}}
 .overlap-table tr:last-child td{{border-bottom:none;}}
-.overlap-table tr:hover td{{background:rgba(0,212,255,.03);}}
+.overlap-table tr:hover td{{background:var(--surface2);}}
 .bar-mini{{display:flex;align-items:center;gap:8px;}}
 .bar-track{{flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden;}}
 .bar-fill{{height:100%;border-radius:2px;transition:width .3s;}}
@@ -120,8 +131,9 @@ body{{background:var(--bg);color:var(--text);font-family:Verdana,Geneva,Tahoma,s
 .gantt-table td.gantt-cell{{width:28px;min-width:28px;max-width:28px;height:20px;padding:1px;border-left:1px solid rgba(30,37,48,.4);vertical-align:middle;}}
 .gantt-table td.gantt-cell.interval-hidden{{display:none;}}
 .gantt-cell-inner{{width:100%;height:16px;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:700;color:rgba(255,255,255,0.85);overflow:hidden;transition:opacity .15s;}}
+[data-theme="light"] .gantt-cell-inner{{color:rgba(0,0,0,0.75);}}
 .gantt-cell-inner:hover{{filter:brightness(1.3);}}
-.gantt-table tr.obra-group-header td{{background:rgba(17,20,24,0.95);padding:3px 8px;font-size:10px;font-weight:700;color:var(--text);border-top:2px solid var(--border);}}
+.gantt-table tr.obra-group-header td{{background:var(--surface2);padding:3px 8px;font-size:10px;font-weight:700;color:var(--text);border-top:2px solid var(--border);}}
 .gantt-table tr:hover .gantt-cell-inner{{opacity:0.85;}}
 .gantt-legend{{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}}
 .gantt-legend-item{{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted);}}
@@ -151,6 +163,11 @@ body{{background:var(--bg);color:var(--text);font-family:Verdana,Geneva,Tahoma,s
     <p>Sobreposição · Superlocação · Atrito entre Obras</p>
   </div>
   <div class="header-right">
+    <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()">
+      <span id="theme-icon">☀️</span>
+      <span id="theme-label">Modo Claro</span>
+      <div class="toggle-track"><div class="toggle-thumb"></div></div>
+    </button>
     <button class="pdf-btn" id="pdf-export-btn" onclick="exportPDF()">📄 Exportar PDF</button>
     <div class="live-dot"></div>
     <span class="badge" id="header-badge"></span>
@@ -309,6 +326,43 @@ body{{background:var(--bg);color:var(--text);font-family:Verdana,Geneva,Tahoma,s
 const DATA = {data_js};
 const OBRA_COLORS = {obra_colors_js};
 const FUNC_COLORS = {func_colors_js};
+
+// ── THEME TOGGLE ──────────────────────────────────────────────────────
+function toggleTheme() {{
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const newTheme = isLight ? 'dark' : 'light';
+  applyTheme(newTheme);
+  localStorage.setItem('hmo-theme', newTheme);
+}}
+function applyTheme(theme) {{
+  if (theme === 'light') {{
+    document.documentElement.setAttribute('data-theme','light');
+    document.getElementById('theme-icon').textContent = '🌙';
+    document.getElementById('theme-label').textContent = 'Modo Escuro';
+  }} else {{
+    document.documentElement.removeAttribute('data-theme');
+    document.getElementById('theme-icon').textContent = '☀️';
+    document.getElementById('theme-label').textContent = 'Modo Claro';
+  }}
+  // update chart colors
+  const gridColor = theme === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)';
+  const tickColor = theme === 'light' ? '#64748b' : '#64748b';
+  const updateChartTheme = (chart) => {{
+    if (!chart) return;
+    chart.options.scales.x.grid.color = gridColor;
+    chart.options.scales.y.grid.color = gridColor;
+    chart.options.scales.x.ticks.color = tickColor;
+    chart.options.scales.y.ticks.color = tickColor;
+    chart.update();
+  }};
+  updateChartTheme(mainChart);
+  updateChartTheme(funcChart);
+}}
+// restore saved theme on load
+(function() {{
+  const saved = localStorage.getItem('hmo-theme');
+  if (saved === 'light') applyTheme('light');
+}})();
 
 let mainChart, funcChart;
 let currentInterval = 3;
