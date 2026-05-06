@@ -15,11 +15,32 @@ FUNC_COLORS = [
 ]
 
 
+def _load_inline_scripts() -> str:
+    """Load JS libraries as inline scripts for iframe-safe embedding (Streamlit etc)."""
+    import os
+    # Paths relative to this file
+    base = Path(__file__).parent
+    libs = [
+        (base / 'chartjs.min.js',     'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js'),
+        (base / 'html2canvas.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'),
+        (base / 'jspdf.min.js',       'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
+    ]
+    tags = []
+    for local_path, cdn_url in libs:
+        if local_path.exists():
+            tags.append(f'<script>{local_path.read_text(encoding="utf-8")}</script>')
+        else:
+            tags.append(f'<script src="{cdn_url}"></script>')
+    return '\n'.join(tags)
+
+
 def generate_html(data: dict) -> str:
     data_js = json.dumps(data, ensure_ascii=False)
     obra_colors_js = json.dumps(OBRA_COLORS)
     func_colors_js = json.dumps(FUNC_COLORS)
     grand_total_fmt = f"{data['grand_total']:,}".replace(',', '.')
+
+    inline_scripts = _load_inline_scripts()
 
     html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -27,9 +48,7 @@ def generate_html(data: dict) -> str:
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Histograma de Mão de Obra</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+{inline_scripts}
 <style>
 :root {{
   --bg:#0a0c10; --surface:#111418; --surface2:#181d24; --border:#1e2530;
