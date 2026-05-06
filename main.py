@@ -1,189 +1,261 @@
 """
-Histograma de Mão de Obra — Streamlit
-Requer: pip install streamlit pandas openpyxl
-Executar: streamlit run main_streamlit.py
+Histograma de Mão de Obra — Aplicativo Principal
+Requer: pip install pandas openpyxl
 """
+import sys
+import os
 import json
-import streamlit as st
+import threading
+import webbrowser
+import tempfile
 from pathlib import Path
+
+# Check dependencies before importing tkinter (so error is clear)
+try:
+    import tkinter as tk
+    from tkinter import ttk, filedialog, messagebox
+except ImportError:
+    print("ERRO: tkinter não encontrado. Instale o Python com suporte a tkinter.")
+    sys.exit(1)
+
+try:
+    import pandas as pd
+except ImportError:
+    print("ERRO: pandas não instalado. Execute: pip install pandas openpyxl")
+    sys.exit(1)
 
 from data_processor import load_excel
 from html_generator import generate_html
 
-# ── PAGE CONFIG ───────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Histograma de Mão de Obra",
-    page_icon="⚡",
-    layout="wide",
-)
 
-# ── CUSTOM CSS ────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-  [data-testid="stAppViewContainer"] { background: #0a0c10; }
-  [data-testid="stHeader"] { background: transparent; }
-  section[data-testid="stSidebar"] { background: #111418; border-right: 1px solid #1e2530; }
-  .block-container { padding-top: 1.5rem; }
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Histograma de Mão de Obra")
+        self.geometry("680x480")
+        self.resizable(False, False)
+        self.configure(bg="#0a0c10")
 
-  /* Title area */
-  .hmo-title { font-size: 22px; font-weight: 700; color: #e2e8f0;
-    font-family: Verdana, sans-serif; letter-spacing: -.5px; }
-  .hmo-sub { font-size: 12px; color: #64748b; font-family: Verdana, sans-serif;
-    margin-top: 2px; }
+        self._current_data = None
+        self._current_html = None
+        self._temp_html = None
 
-  /* KPI cards */
-  .kpi-row { display: flex; gap: 14px; margin-bottom: 20px; }
-  .kpi-card { flex: 1; background: #111418; border: 1px solid #1e2530;
-    border-radius: 12px; padding: 18px 20px; position: relative; overflow: hidden; }
-  .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0;
-    height: 2px; background: linear-gradient(90deg,#00d4ff,#7c3aed); opacity: .6; }
-  .kpi-label { font-size: 11px; color: #64748b; letter-spacing: .5px;
-    text-transform: uppercase; margin-bottom: 8px; font-family: Verdana, sans-serif; }
-  .kpi-value { font-size: 32px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
-  .kpi-sub { font-size: 11px; color: #64748b; margin-top: 6px;
-    font-family: Verdana, sans-serif; }
-  .kpi-icon { position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
-    font-size: 28px; opacity: .08; }
+        self._build_ui()
+        self._center_window()
 
-  /* Info box */
-  .info-box { background: #111418; border: 1px solid #1e2530; border-radius: 10px;
-    padding: 14px 18px; font-family: 'Courier New', monospace; font-size: 12px;
-    color: #94a3b8; line-height: 1.8; margin-bottom: 16px; }
+    # ── UI ────────────────────────────────────────────────────────────
+    def _build_ui(self):
+        # Title bar area
+        header = tk.Frame(self, bg="#111418", pady=20)
+        header.pack(fill="x")
+        tk.Label(header, text="⚡  Histograma de Mão de Obra",
+                 font=("Helvetica", 16, "bold"), bg="#111418", fg="#e2e8f0").pack()
+        tk.Label(header, text="Sobreposição · Superlocação · Atrito entre Obras",
+                 font=("Helvetica", 10), bg="#111418", fg="#64748b").pack(pady=(4, 0))
 
-  /* Buttons */
-  div[data-testid="stDownloadButton"] button {
-    background: #1e2530; color: #f59e0b; border: 1px solid #f59e0b;
-    font-weight: 600; border-radius: 8px; padding: 6px 18px;
-    font-family: Verdana, sans-serif; transition: all .2s;
-  }
-  div[data-testid="stDownloadButton"] button:hover {
-    background: #f59e0b; color: #000;
-  }
-  stFileUploader { background: #111418; }
-</style>
-""", unsafe_allow_html=True)
+        # Drop zone
+        self.drop_frame = tk.Frame(self, bg="#0a0c10", pady=30)
+        self.drop_frame.pack(fill="x", padx=40)
 
-# ── SIDEBAR ───────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown('<div class="hmo-title">⚡ Histograma</div>', unsafe_allow_html=True)
-    st.markdown('<div class="hmo-sub">Mão de Obra · Sobreposição · Atrito</div>',
-                unsafe_allow_html=True)
-    st.markdown("---")
+        self.drop_label = tk.Label(
+            self.drop_frame,
+            text="📂  Arraste um arquivo Excel aqui\nou clique em Importar para selecionar",
+            font=("Helvetica", 12), bg="#1a1f28",
+            fg="#64748b", pady=40, relief="flat",
+            cursor="hand2"
+        )
+        self.drop_label.pack(fill="x")
+        self.drop_label.bind("<Button-1>", lambda e: self._browse_file())
 
-    uploaded = st.file_uploader(
-        "📂 Importar planilha Excel",
-        type=["xlsx", "xls", "xlsm"],
-        help="Colunas esperadas: OBRA · PERÍODO · QTD · FUNÇÃO (e opcionalmente CIDADE)"
-    )
+        # Status bar
+        self.status_var = tk.StringVar(value="Nenhum arquivo carregado")
+        status_bar = tk.Label(self, textvariable=self.status_var,
+                              font=("Courier", 10), bg="#0a0c10", fg="#64748b",
+                              anchor="w", padx=40)
+        status_bar.pack(fill="x")
 
-    st.markdown("---")
-    st.markdown(
-        "<div style='font-size:10px;color:#374151;font-family:Verdana,sans-serif;'>"
-        "Suporta: OBRA · PERÍODO · QTD · FUNÇÃO · CIDADE</div>",
-        unsafe_allow_html=True
-    )
+        # Progress
+        self.progress = ttk.Progressbar(self, mode="indeterminate", length=600)
+        self.progress.pack(pady=(8, 0), padx=40)
 
-# ── MAIN AREA ─────────────────────────────────────────────────────────
-st.markdown('<div class="hmo-title">⚡ Histograma de Mão de Obra</div>', unsafe_allow_html=True)
-st.markdown('<div class="hmo-sub">Sobreposição · Superlocação · Atrito entre Obras</div>',
-            unsafe_allow_html=True)
-st.markdown("<br>", unsafe_allow_html=True)
+        # File info card
+        self.info_frame = tk.Frame(self, bg="#111418", pady=14, padx=20)
+        self.info_frame.pack(fill="x", padx=40, pady=12)
+        self.info_text = tk.Label(self.info_frame, text="", font=("Courier", 10),
+                                  bg="#111418", fg="#94a3b8", justify="left", anchor="w")
+        self.info_text.pack(fill="x")
 
-if uploaded is None:
-    st.info("👈  Faça o upload de uma planilha Excel na barra lateral para começar.")
-    st.stop()
+        # Buttons
+        btn_frame = tk.Frame(self, bg="#0a0c10")
+        btn_frame.pack(pady=10)
 
-# ── PROCESS FILE ──────────────────────────────────────────────────────
-@st.cache_data(show_spinner="Processando planilha…")
-def process(file_bytes: bytes, filename: str):
-    import tempfile, os
-    with tempfile.NamedTemporaryFile(suffix=Path(filename).suffix, delete=False) as tmp:
-        tmp.write(file_bytes)
-        tmp_path = tmp.name
-    try:
-        data = load_excel(tmp_path)
-        html = generate_html(data)
-    finally:
-        os.unlink(tmp_path)
-    return data, html
+        self._btn_import = self._btn(btn_frame, "📂  Importar Excel", self._browse_file,
+                                     "#1e2530", "#00d4ff")
+        self._btn_import.pack(side="left", padx=6)
 
-try:
-    data, html = process(uploaded.read(), uploaded.name)
-except Exception as e:
-    st.error(f"❌ Erro ao processar o arquivo:\n\n{e}")
-    st.stop()
+        self._btn_view = self._btn(btn_frame, "🌐  Abrir Dashboard", self._open_dashboard,
+                                   "#7c3aed", "#fff")
+        self._btn_view.pack(side="left", padx=6)
+        self._btn_view.config(state="disabled")
 
-# ── KPI CARDS ─────────────────────────────────────────────────────────
-grand_fmt = f"{data['grand_total']:,}".replace(",", ".")
-months_range = f"{data['months'][0]} → {data['months'][-1]}" if data['months'] else "—"
+        self._btn_save = self._btn(btn_frame, "💾  Salvar HTML", self._save_html,
+                                   "#1e2530", "#f59e0b")
+        self._btn_save.pack(side="left", padx=6)
+        self._btn_save.config(state="disabled")
 
-st.markdown(f"""
-<div class="kpi-row">
-  <div class="kpi-card">
-    <div class="kpi-label">Pico Total</div>
-    <div class="kpi-value" style="color:#00d4ff">{data['peak_total']}</div>
-    <div class="kpi-sub">{data['peak_month']} — máximo histórico</div>
-    <div class="kpi-icon">📈</div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-label">Obras no Portfolio</div>
-    <div class="kpi-value" style="color:#f59e0b">{data['num_obras']}</div>
-    <div class="kpi-sub">sobreposição ativa</div>
-    <div class="kpi-icon">🏗️</div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-label">Total Func-Mês</div>
-    <div class="kpi-value" style="color:#7c3aed">{grand_fmt}</div>
-    <div class="kpi-sub">acumulado geral</div>
-    <div class="kpi-icon">👷</div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-label">Duração</div>
-    <div class="kpi-value" style="color:#10b981">{data['duration']}</div>
-    <div class="kpi-sub">meses · {months_range}</div>
-    <div class="kpi-icon">📅</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+        self._btn_json = self._btn(btn_frame, "📋  Exportar JSON", self._save_json,
+                                   "#1e2530", "#10b981")
+        self._btn_json.pack(side="left", padx=6)
+        self._btn_json.config(state="disabled")
 
-# ── FILE INFO ─────────────────────────────────────────────────────────
-st.markdown(f"""
-<div class="info-box">
-  &nbsp; Arquivo : {uploaded.name}<br>
-  &nbsp; Obras   : {data['num_obras']} &nbsp;|&nbsp; Funções : {len(data['funcoes'])}<br>
-  &nbsp; Período : {months_range} &nbsp;({data['duration']} meses)<br>
-  &nbsp; Pico    : {data['peak_total']} trab. em {data['peak_month']}<br>
-  &nbsp; Total   : {grand_fmt} func-mês
-</div>
-""", unsafe_allow_html=True)
+        # Footer
+        tk.Label(self, text="Suporta colunas: OBRA · PERÍODO · QTD · FUNÇÃO",
+                 font=("Helvetica", 9), bg="#0a0c10", fg="#374151").pack(pady=(0, 8))
 
-# ── DASHBOARD EMBED ───────────────────────────────────────────────────
-st.markdown("### 🌐 Dashboard Interativo")
-st.markdown(
-    "<div style='font-size:11px;color:#64748b;margin-bottom:8px;font-family:Verdana,sans-serif;'>"
-    "O dashboard completo está incorporado abaixo — todos os filtros, Gantt, Mapa de Calor "
-    "e exportação PDF funcionam normalmente.</div>",
-    unsafe_allow_html=True
-)
+    def _btn(self, parent, text, command, bg, fg):
+        return tk.Button(parent, text=text, command=command,
+                         font=("Helvetica", 11, "bold"), bg=bg, fg=fg,
+                         relief="flat", padx=16, pady=10, cursor="hand2",
+                         activebackground=bg, activeforeground=fg)
 
-st.components.v1.html(html, height=2400, scrolling=True)
+    def _center_window(self):
+        self.update_idletasks()
+        w, h = self.winfo_width(), self.winfo_height()
+        x = (self.winfo_screenwidth() - w) // 2
+        y = (self.winfo_screenheight() - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
 
-# ── DOWNLOAD BUTTONS ─────────────────────────────────────────────────
-st.markdown("---")
-col1, col2, col3 = st.columns([1, 1, 3])
+    # ── ACTIONS ───────────────────────────────────────────────────────
+    def _browse_file(self):
+        path = filedialog.askopenfilename(
+            title="Selecionar Base Excel",
+            filetypes=[("Excel files", "*.xlsx *.xls *.xlsm"), ("All files", "*.*")]
+        )
+        if path:
+            self._load_file(path)
 
-with col1:
-    st.download_button(
-        label="💾  Salvar HTML",
-        data=html.encode("utf-8"),
-        file_name="histograma_mao_de_obra.html",
-        mime="text/html",
-    )
+    def _load_file(self, path: str):
+        self.status_var.set(f"Carregando: {Path(path).name} …")
+        self.progress.start(12)
+        self._btn_view.config(state="disabled")
+        self._btn_save.config(state="disabled")
+        self._btn_json.config(state="disabled")
 
-with col2:
-    st.download_button(
-        label="📋  Exportar JSON",
-        data=json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"),
-        file_name="histograma_data.json",
-        mime="application/json",
-    )
+        def worker():
+            try:
+                data = load_excel(path)
+                html = generate_html(data)
+                self.after(0, lambda: self._on_load_success(path, data, html))
+            except Exception as exc:
+                self.after(0, lambda: self._on_load_error(str(exc)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_load_success(self, path, data, html):
+        self.progress.stop()
+        self._current_data = data
+        self._current_html = html
+
+        # Info card
+        months_range = f"{data['months'][0]} → {data['months'][-1]}" if data['months'] else '—'
+        grand = f"{data['grand_total']:,}".replace(',', '.')
+        info = (
+            f"  Arquivo : {Path(path).name}\n"
+            f"  Obras   : {data['num_obras']}   |   Funções: {len(data['funcoes'])}\n"
+            f"  Período : {months_range}   ({data['duration']} meses)\n"
+            f"  Pico    : {data['peak_total']} trab. em {data['peak_month']}\n"
+            f"  Total   : {grand} func-mês"
+        )
+        self.info_text.config(text=info)
+        self.drop_label.config(fg="#00d4ff", text=f"✅  {Path(path).name} carregado com sucesso")
+
+        self.status_var.set("✅  Dashboard pronto!")
+        self._btn_view.config(state="normal")
+        self._btn_save.config(state="normal")
+        self._btn_json.config(state="normal")
+
+        # Auto-open
+        self._open_dashboard()
+
+    def _on_load_error(self, msg):
+        self.progress.stop()
+        self.status_var.set("❌  Erro ao carregar arquivo")
+        messagebox.showerror("Erro ao Importar", f"Não foi possível processar o arquivo:\n\n{msg}")
+
+    def _open_dashboard(self):
+        if not self._current_html:
+            return
+        # Write to temp file and open
+        if self._temp_html and Path(self._temp_html).exists():
+            try:
+                os.unlink(self._temp_html)
+            except Exception:
+                pass
+        tmp = tempfile.NamedTemporaryFile(suffix=".html", delete=False,
+                                          mode="w", encoding="utf-8")
+        tmp.write(self._current_html)
+        tmp.close()
+        self._temp_html = tmp.name
+        webbrowser.open(f"file://{self._temp_html}")
+        self.status_var.set(f"🌐  Dashboard aberto no navegador")
+
+    def _save_html(self):
+        if not self._current_html:
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".html",
+            filetypes=[("HTML", "*.html")],
+            initialfile="histograma_mao_de_obra.html"
+        )
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self._current_html)
+            self.status_var.set(f"💾  Salvo: {Path(path).name}")
+            messagebox.showinfo("Salvo", f"Dashboard HTML salvo em:\n{path}")
+
+    def _save_json(self):
+        if not self._current_data:
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON", "*.json")],
+            initialfile="histograma_data.json"
+        )
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self._current_data, f, ensure_ascii=False, indent=2)
+            self.status_var.set(f"📋  JSON salvo: {Path(path).name}")
+
+    def destroy(self):
+        if self._temp_html and Path(self._temp_html).exists():
+            try:
+                os.unlink(self._temp_html)
+            except Exception:
+                pass
+        super().destroy()
+
+
+# ── CLI MODE (sem GUI) ────────────────────────────────────────────────
+def cli_mode(excel_path: str, output_path: str = None):
+    """Run without GUI: python main.py arquivo.xlsx [saida.html]"""
+    print(f"Processando: {excel_path}")
+    data = load_excel(excel_path)
+    html = generate_html(data)
+    out = output_path or excel_path.replace(".xlsx", "_dashboard.html").replace(".xls", "_dashboard.html")
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"Dashboard gerado: {out}")
+    print(f"Obras: {data['num_obras']} | Pico: {data['peak_total']} ({data['peak_month']}) | Total: {data['grand_total']} func-mês")
+    webbrowser.open(f"file://{Path(out).resolve()}")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        # CLI mode
+        excel = sys.argv[1]
+        output = sys.argv[2] if len(sys.argv) > 2 else None
+        cli_mode(excel, output)
+    else:
+        # GUI mode
+        app = App()
+        app.mainloop()
