@@ -108,13 +108,14 @@ body{{background:var(--bg);color:var(--text);font-family:Verdana,Geneva,Tahoma,s
 .obra-dot{{width:10px;height:10px;border-radius:50%;flex-shrink:0;}}
 .obra-info{{flex:1;min-width:0;}}
 .obra-name{{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}}
-.obra-meta{{font-size:10px;color:var(--muted);margin-top:2px;font-family:Verdana,Geneva,Tahoma,sans-serif;}}
+.obra-meta{{font-size:12px;color:var(--muted);margin-top:4px;font-family:Verdana,Geneva,Tahoma,sans-serif;line-height:1.5;}}
 .obra-peak{{font-size:16px;font-weight:700;color:var(--accent3);flex-shrink:0;}}
 .bottom-grid{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;}}
 .func-pills{{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}}
 .func-pill{{padding:4px 10px;border-radius:16px;font-size:10px;font-weight:500;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .15s;font-family:Verdana,Geneva,Tahoma,sans-serif;}}
 .func-pill:hover{{border-color:var(--accent);color:var(--accent);}}
 .func-pill.active{{color:#000;font-weight:600;}}
+.func-multi-hint{{font-size:10px;color:var(--muted);font-style:italic;margin-bottom:6px;}}
 .overlap-table{{width:100%;border-collapse:collapse;font-size:11px;}}
 .overlap-table th{{text-align:left;padding:8px 12px;color:var(--muted);border-bottom:1px solid var(--border);font-size:10px;letter-spacing:.5px;text-transform:uppercase;font-weight:600;}}
 .overlap-table td{{padding:8px 12px;border-bottom:1px solid rgba(30,37,48,.5);}}
@@ -270,10 +271,11 @@ body{{background:var(--bg);color:var(--text);font-family:Verdana,Geneva,Tahoma,s
   <div class="chart-card">
     <div class="chart-header">
       <div>
-        <div class="chart-title">Função ao Longo do Tempo</div>
+        <div class="chart-title">Função ao Longo do Tempo &nbsp;<span id="func-city-label" style="font-size:11px;font-weight:400;color:var(--accent);"></span></div>
         <div class="chart-subtitle">Demanda mensal por especialidade</div>
       </div>
     </div>
+    <div class="func-multi-hint">Clique para selecionar · <strong style="color:var(--accent3)">Ctrl+clique</strong> para múltiplas funções</div>
     <div class="func-pills" id="func-pills"></div>
     <div style="position:relative;height:200px;"><canvas id="funcChart"></canvas></div>
   </div>
@@ -386,6 +388,7 @@ function applyTheme(theme) {{
 let mainChart, funcChart;
 let currentInterval = 3;
 let activeCityGlobal = 'ALL';
+let activeFuncs = new Set();  // multi-select for func chart
 
 // ── MULTI-SELECT STATE ────────────────────────────────────────────────
 // Set() of selected obras for histogram; empty = ALL
@@ -441,6 +444,8 @@ function onCityChange(city) {{
   buildOverlapTable();
   updateMainChart();
   updateKPIs();
+  updateFuncChartFull();
+  updateFuncCityLabel();
 }}
 
 function updateKPIs() {{
@@ -650,53 +655,98 @@ function buildObraList() {{
   }});
 }}
 
-// ── FUNC CHART ───────────────────────────────────────────────────────
-let activeFunc = DATA.funcoes[0];
+// ── FUNC CHART (city-aware, multi-select) ────────────────────────────
+function getFuncDataForCity(func) {{
+  // Sum only obras belonging to the active city
+  const obras = getFilteredObras(activeCityGlobal);
+  return DATA.months.map((_, mi) =>
+    obras.reduce((s, o) => s + ((DATA.obra_func_data[o]?.[func]?.[mi]) || 0), 0)
+  );
+}}
+
+function updateFuncCityLabel() {{
+  const el = document.getElementById('func-city-label');
+  if (!el) return;
+  if (activeCityGlobal === 'ALL') {{
+    el.textContent = '— Visualização de MO Geral';
+    el.style.color = 'var(--muted)';
+  }} else {{
+    el.textContent = `— Visualizando MO de ${{activeCityGlobal}}`;
+    el.style.color = 'var(--accent)';
+  }}
+}}
 
 function initFuncChart() {{
+  // seed with first func
+  const firstFunc = DATA.funcoes[0];
+  activeFuncs.add(firstFunc);
+  const color = FUNC_COLORS[0];
   const ctx = document.getElementById('funcChart').getContext('2d');
   funcChart = new Chart(ctx, {{
     type: 'bar',
     data: {{
       labels: DATA.months,
-      datasets: [{{ label: activeFunc, data: DATA.func_data[activeFunc], backgroundColor: FUNC_COLORS[0] + 'bb', borderColor: FUNC_COLORS[0], borderWidth: 0, borderRadius: 2 }}]
+      datasets: [{{ label: firstFunc, data: getFuncDataForCity(firstFunc),
+        backgroundColor: color + 'bb', borderColor: color, borderWidth: 0, borderRadius: 2 }}]
     }},
     options: {{
       responsive: true, maintainAspectRatio: false,
       plugins: {{
-        legend: {{ display: false }},
-        tooltip: {{ backgroundColor: '#0f1318ee', borderColor: '#1e2530', borderWidth: 1, titleColor: '#e2e8f0', bodyColor: '#94a3b8' }}
+        legend: {{ display: true, position: 'bottom', labels: {{ color: '#94a3b8', font: {{ size: 9 }}, boxWidth: 12 }} }},
+        tooltip: {{ backgroundColor: '#0f1318ee', borderColor: '#1e2530', borderWidth: 1,
+          titleColor: '#e2e8f0', bodyColor: '#94a3b8' }}
       }},
       scales: {{
-        x: {{ grid: {{ color: '#1e2530' }}, ticks: {{ color: '#64748b', font: {{ size: 8 }}, maxTicksLimit: Math.ceil(DATA.months.length / currentInterval) }} }},
-        y: {{ grid: {{ color: '#1e2530' }}, ticks: {{ color: '#64748b', font: {{ size: 10 }} }} }}
+        x: {{ stacked: true, grid: {{ color: '#1e2530' }},
+          ticks: {{ color: '#64748b', font: {{ size: 8 }}, maxTicksLimit: Math.ceil(DATA.months.length / currentInterval) }} }},
+        y: {{ stacked: true, grid: {{ color: '#1e2530' }},
+          ticks: {{ color: '#64748b', font: {{ size: 10 }} }} }}
       }}
     }}
   }});
+  updateFuncCityLabel();
 }}
 
-function updateFuncChart(func) {{
-  const idx = DATA.funcoes.indexOf(func);
-  const color = FUNC_COLORS[idx % FUNC_COLORS.length];
-  funcChart.data.datasets[0] = {{ label: func, data: DATA.func_data[func], backgroundColor: color + 'bb', borderColor: color, borderWidth: 0, borderRadius: 2 }};
+function updateFuncChartFull() {{
+  if (!funcChart) return;
+  const funcs = [...activeFuncs];
+  funcChart.data.datasets = funcs.map((func, i) => {{
+    const idx = DATA.funcoes.indexOf(func);
+    const color = FUNC_COLORS[idx % FUNC_COLORS.length];
+    return {{ label: func, data: getFuncDataForCity(func),
+      backgroundColor: color + 'bb', borderColor: color, borderWidth: 0, borderRadius: 2 }};
+  }});
   funcChart.update('active');
 }}
 
-// ── FUNC PILLS ───────────────────────────────────────────────────────
 function buildFuncPills() {{
   const container = document.getElementById('func-pills');
   DATA.funcoes.forEach((func, i) => {{
     const btn = document.createElement('button');
+    const color = FUNC_COLORS[i % FUNC_COLORS.length];
     btn.className = 'func-pill' + (i === 0 ? ' active' : '');
-    btn.style.borderColor = FUNC_COLORS[i % FUNC_COLORS.length] + '66';
-    if (i === 0) {{ btn.style.background = FUNC_COLORS[0]; btn.style.color = '#000'; }}
+    btn.style.borderColor = color + '66';
+    if (i === 0) {{ btn.style.background = color; btn.style.color = '#000'; }}
     const shortName = func.length > 22 ? func.substring(0, 20) + '…' : func;
     btn.textContent = shortName; btn.title = func;
-    btn.addEventListener('click', () => {{
-      document.querySelectorAll('.func-pill').forEach(p => {{ p.classList.remove('active'); p.style.background = ''; p.style.color = ''; }});
-      btn.classList.add('active');
-      btn.style.background = FUNC_COLORS[i % FUNC_COLORS.length]; btn.style.color = '#000';
-      activeFunc = func; updateFuncChart(func);
+    btn.addEventListener('click', (e) => {{
+      if (e.ctrlKey || e.metaKey) {{
+        // multi-select toggle
+        if (activeFuncs.has(func)) {{
+          if (activeFuncs.size > 1) {{ activeFuncs.delete(func); btn.classList.remove('active'); btn.style.background = ''; btn.style.color = ''; }}
+        }} else {{
+          activeFuncs.add(func); btn.classList.add('active'); btn.style.background = color; btn.style.color = '#000';
+        }}
+      }} else {{
+        // single select — clear all, pick this one
+        activeFuncs.clear();
+        activeFuncs.add(func);
+        document.querySelectorAll('.func-pill').forEach((p, pi) => {{
+          p.classList.remove('active'); p.style.background = ''; p.style.color = '';
+        }});
+        btn.classList.add('active'); btn.style.background = color; btn.style.color = '#000';
+      }}
+      updateFuncChartFull();
     }});
     container.appendChild(btn);
   }});
